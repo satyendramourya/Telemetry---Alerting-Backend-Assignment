@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { TelemetryController } from "../modules/telemetry/telemetry.controller";
 import { AlertController } from "../modules/alerts/alert.controller";
-import { validateTelemetryPayload } from "../common/middleware/validate.middleware";
+import { validateTelemetryPayload, validateBulkTelemetryPayload } from "../common/middleware/validate.middleware";
 
 const router = Router();
 
@@ -10,6 +10,13 @@ router.post(
   "/telemetry",
   validateTelemetryPayload,
   TelemetryController.createTelemetry
+);
+
+// Bulk must be registered BEFORE /:id routes to avoid param conflicts
+router.post(
+  "/telemetry/bulk",
+  validateBulkTelemetryPayload,
+  TelemetryController.bulkCreateTelemetry
 );
 
 router.get("/devices/:id/latest", TelemetryController.getLatest);

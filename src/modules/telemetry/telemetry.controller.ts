@@ -68,4 +68,17 @@ export class TelemetryController {
       next(error);
     }
   }
+
+  static async bulkCreateTelemetry(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const result = await TelemetryService.processBulkTelemetry(req.body);
+      res.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
