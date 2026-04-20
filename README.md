@@ -4,6 +4,36 @@ A production-ready backend microservice for high-throughput **telemetry ingestio
 
 ---
 
+## ✅ Implementation Checklist
+
+### Core Requirements
+
+| # | Requirement | Status |
+|---|---|---|
+| 1 | `POST /api/v1/telemetry` — ingest telemetry with payload validation | ✅ Done |
+| 2 | Idempotency via compound unique index `{deviceId, sourceId, timestamp}` | ✅ Done |
+| 3 | Time-series schema with write-optimized MongoDB indexes | ✅ Done |
+| 4 | Rule-based alert engine (`metricA > 100`, `metricB < 50`, `metricC = 0 × 3`) | ✅ Done |
+| 5 | Alert lifecycle: `OPEN` → `ACKNOWLEDGED` → `RESOLVED` via `PATCH` endpoint | ✅ Done |
+| 6 | Prevent duplicate `OPEN` alerts via partial unique index | ✅ Done |
+| 7 | `GET /devices/:id/latest` — latest reading per device | ✅ Done |
+| 8 | `GET /devices/:id/history?from=&to=` — time-range query with date validation | ✅ Done |
+| 9 | `GET /alerts?status=&severity=` — filtered, paginated alerts via `$facet` aggregation | ✅ Done |
+| 10 | Strict Controller → Service → Repository separation | ✅ Done |
+| 11 | Centralized error handling middleware | ✅ Done |
+| 12 | Environment-based configuration (`.env` + `env.ts`) | ✅ Done |
+| 13 | Structured logging with **Pino** across all layers | ✅ Done |
+
+### Bonus Features
+
+| # | Bonus | Status |
+|---|---|---|
+| B1 | **Bulk insert** — `POST /api/v1/telemetry/bulk` with `insertMany ordered:false`, per-item validation, 500-item cap | ✅ Done |
+| B2 | **Graceful shutdown** — `SIGTERM`/`SIGINT` drain HTTP + MongoDB, 30s force-kill safety net | ✅ Done |
+| B3 | **In-memory rule engine abstraction** — pluggable `RuleEngine` class with typed `Rule` interface and chainable `register()` | ✅ Done |
+
+---
+
 ## 🛠 Tech Stack
 
 | Layer | Technology |
@@ -377,6 +407,32 @@ Rules are evaluated automatically on every telemetry ingestion inside `src/modul
 | `metricB_low` | `metricB < 50` | `CRITICAL` |
 | `device_offline` | `metricC === 0` for **3 consecutive readings** | `CRITICAL` |
 
+### Pluggable Rule Engine Abstraction *(Bonus)*
+
+The engine is implemented as an **in-memory class** with a typed `Rule` interface, making it trivial to add or remove rules without touching ingestion logic:
+
+```typescript
+interface Rule {
+  name: string;
+  severity: AlertSeverity;
+  evaluate: (telemetry: any, history: any[]) => boolean;
+}
+
+class RuleEngine {
+  register(rule: Rule): this { ... }  // chainable — duplicate names are replaced
+  evaluate(telemetry, history): INewAlert[] { ... }
+}
+
+// Adding a new rule requires zero changes to the service or controller:
+ruleEngine.register({
+  name: "metricA_critical",
+  severity: AlertSeverity.CRITICAL,
+  evaluate: (t) => t.readings?.metricA > 200,
+});
+```
+
+A singleton `ruleEngine` instance is exported and shared across the codebase. Rules are registered once at module load time.
+
 ### Idempotent Alert Creation
 
 A **Partial Unique Index** on `{ deviceId, rule, status }` (filtered to `status: OPEN`) ensures that a device can never accumulate duplicate active alerts for the same rule. Once resolved, a new `OPEN` alert can be generated on the next breach.
@@ -404,6 +460,86 @@ A **Partial Unique Index** on `{ deviceId, rule, status }` (filtered to `status:
 // Read optimization: GET /alerts?status=&severity= queries
 { status: 1, severity: 1, createdAt: -1 }
 ```
+
+---
+
+## 🚀 Bonus Features
+
+### 1. Bulk Insert Optimization
+
+A dedicated endpoint accepts up to **500 telemetry readings in a single request**, using `insertMany` with `ordered: false` for maximum write throughput. A duplicate key error on one document never aborts the rest of the batch.
+
+**`POST /api/v1/telemetry/bulk`**
+
+#### Request Body
+
+```json
+[
+  {
+    "deviceId": "DEV-2001",
+    "sourceId": "SRC-01",
+    "timestamp": "2026-04-20T08:00:00Z",
+    "readings": { "metricA": 120, "metricB": 60, "metricC": 0 }
+  },
+  {
+    "deviceId": "DEV-2001",
+    "sourceId": "SRC-01",
+    "timestamp": "2026-04-20T09:00:00Z",
+    "readings": { "metricA": 90, "metricB": 60, "metricC": 0 }
+  }
+]
+```
+
+#### Response — `201 Created`
+
+```json
+{
+  "success": true,
+  "inserted": 2,
+  "duplicatesSkipped": 0,
+  "alertsGenerated": 0
+}
+```
+
+#### Behaviour
+
+| Scenario | Result |
+|---|---|
+| All new documents | `inserted = N`, `duplicatesSkipped = 0` |
+| All duplicates | `inserted = 0`, `duplicatesSkipped = N` |
+| Mixed batch | Only new docs inserted, duplicates counted silently |
+| Empty array | `400 Bad Request` |
+| Array > 500 items | `400 Bad Request — Bulk limit exceeded` |
+| Item with missing field | `400 Bad Request — Item[i]: invalid or missing <field>` |
+
+After insert, the rule engine runs **per unique deviceId** in the batch (not per document), minimising DB round-trips.
+
+---
+
+### 2. Graceful Shutdown
+
+The server handles `SIGTERM` (Kubernetes/Docker) and `SIGINT` (Ctrl+C) with a clean drain sequence:
+
+```
+1. server.close()         → stops accepting new HTTP connections
+2. mongoose.close()       → flushes pending writes, closes DB pool
+3. process.exit(0)        → clean exit
+4. setTimeout 30s         → force-kill safety net if drain hangs
+```
+
+Unhandled promise rejections are also caught and logged before triggering shutdown:
+
+```json
+{ "signal": "SIGINT", "msg": "Shutdown signal received — draining connections..." }
+{ "msg": "MongoDB connection closed gracefully" }
+{ "msg": "Shutdown complete. Goodbye 👋" }
+```
+
+---
+
+### 3. In-Memory Rule Engine Abstraction
+
+See the [Rule Engine section](#-rule-engine) above for the full class design.
 
 ---
 
