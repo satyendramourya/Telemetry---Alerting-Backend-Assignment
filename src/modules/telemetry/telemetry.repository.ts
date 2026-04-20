@@ -22,6 +22,8 @@ export class TelemetryRepository {
     return TelemetryModel.find({
       deviceId,
       timestamp: { $gte: from, $lte: to },
-    }).sort({ timestamp: -1 });
+    })
+      .sort({ timestamp: -1 })
+      .lean();
   }
 }

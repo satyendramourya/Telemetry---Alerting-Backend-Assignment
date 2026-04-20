@@ -50,6 +50,14 @@ export class TelemetryController {
         return;
       }
 
+      if (isNaN(Date.parse(from as string)) || isNaN(Date.parse(to as string))) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid 'from' or 'to' date format",
+        });
+        return;
+      }
+
       const data = await TelemetryService.getHistory(
         id,
         new Date(from),
