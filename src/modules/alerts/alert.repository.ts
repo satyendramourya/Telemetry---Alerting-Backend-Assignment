@@ -21,7 +21,27 @@ export class AlertRepository {
     }
   }
 
-  static async findAlerts(filter: any, skip: number, limit: number, sort: any) {
-    return AlertModel.find(filter).skip(skip).limit(limit).sort(sort);
+  static async findAlerts(filter: any, skip: number, limit: number, sort: Record<string, 1 | -1>) {
+    const pipeline: any[] = [
+      { $match: filter },
+      { $sort: sort },
+      {
+        $facet: {
+          metadata: [{ $count: "total" }],
+          data: [{ $skip: skip }, { $limit: limit }],
+        },
+      },
+    ];
+
+    const result = await AlertModel.aggregate(pipeline);
+    
+    const totalCount = result[0]?.metadata[0]?.total || 0;
+    const data = result[0]?.data || [];
+
+    return { totalCount, data, limit, skip };
+  }
+
+  static async updateAlertStatus(id: string, status: AlertStatus) {
+    return AlertModel.findByIdAndUpdate(id, { status }, { new: true });
   }
 }

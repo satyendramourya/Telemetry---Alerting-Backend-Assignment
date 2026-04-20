@@ -17,5 +17,6 @@ router.get("/devices/:id/history", TelemetryController.getHistory);
 
 // Alert Logic
 router.get("/alerts", AlertController.getAlerts);
+router.patch("/alerts/:id/status", AlertController.updateStatus);
 
 export default router;

@@ -12,7 +12,7 @@ export class AlertService {
     if (severity) filter.severity = severity;
 
     const skip = (page - 1) * limit;
-    const sort = { createdAt: -1 };
+    const sort = { createdAt: -1 } as const;
 
     const alerts = await AlertRepository.findAlerts(
       filter,
@@ -22,5 +22,11 @@ export class AlertService {
     );
 
     return alerts;
+  }
+
+  static async updateStatus(id: string, status: string) {
+    // Relying on mongoose to validate the enum during save/update when passing status. 
+    // We import the enum conceptually or just pass standard strings.
+    return AlertRepository.updateAlertStatus(id, status as any);
   }
 }

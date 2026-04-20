@@ -25,4 +25,30 @@ export class AlertController {
       next(error);
     }
   }
+
+  static async updateStatus(
+    req: Request<{ id: string }>,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+
+      if (!status) {
+        res.status(400).json({ success: false, message: "Status is required" });
+        return;
+      }
+
+      const updated = await AlertService.updateStatus(id, status);
+      if (!updated) {
+        res.status(404).json({ success: false, message: "Alert not found" });
+        return;
+      }
+
+      res.status(200).json({ success: true, data: updated });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
